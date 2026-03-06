@@ -105,7 +105,19 @@ def main():
     # Suppress pyngrok noise (especially during shutdown)
     logging.getLogger("pyngrok").setLevel(logging.ERROR)
     
-    from pyngrok import ngrok
+    from pyngrok import ngrok, conf
+    import shutil
+
+    # Use real ngrok binary (prefer Homebrew over pyngrok wrapper)
+    system_ngrok = None
+    for candidate in ["/opt/homebrew/bin/ngrok", "/usr/local/bin/ngrok"]:
+        if os.path.exists(candidate):
+            system_ngrok = candidate
+            break
+    if not system_ngrok:
+        system_ngrok = shutil.which("ngrok")
+    if system_ngrok:
+        conf.get_default().ngrok_path = system_ngrok
 
     from dotenv import load_dotenv
     
