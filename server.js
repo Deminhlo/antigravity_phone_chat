@@ -240,14 +240,36 @@ async function captureSnapshot(cdp) {
             interactionSelectors.forEach(selector => {
                 clone.querySelectorAll(selector).forEach(el => {
                     try {
+                        const txt = (el.innerText || '').toLowerCase();
+                        if (txt.includes('files with changes') || txt.includes('accept all') || txt.includes('review changes')) {
+                            // Protect the review bar from generic structure removal
+                            return;
+                        }
+
                         // For the editor, we want to remove its interaction container
                         if (selector === '[contenteditable="true"]') {
                             const area = el.closest('.relative.flex.flex-col.gap-8') || 
                                          el.closest('.flex.grow.flex-col.justify-start.gap-8') ||
                                          el.closest('div[id^="interaction"]') ||
                                          el.parentElement?.parentElement;
-                            if (area && area !== clone) area.remove();
-                            else el.remove();
+                                         
+                            let safeToRemoveArea = true;
+                            if (area && area !== clone) {
+                                const areaTxt = (area.innerText || '').toLowerCase();
+                                if (areaTxt.includes('files with changes') || areaTxt.includes('accept all')) {
+                                    safeToRemoveArea = false;
+                                }
+                            }
+
+                            if (safeToRemoveArea && area && area !== clone) {
+                                area.remove();
+                            } else {
+                                // The area has the review bar! Remove only the closest editor wrapper
+                                // so we don't nuke the review bar.
+                                const innerWrapper = el.closest('.min-h-\\[40px\\]') || el.parentElement;
+                                if (innerWrapper && innerWrapper !== clone) innerWrapper.remove();
+                                else el.remove();
+                            }
                         } else {
                             el.remove();
                         }
@@ -260,7 +282,7 @@ async function captureSnapshot(cdp) {
             allElements.forEach(el => {
                 try {
                     const text = (el.innerText || '').toLowerCase();
-                    if (text.includes('review changes') || text.includes('files with changes') || text.includes('context found')) {
+                    if (text.includes('review changes') || text.includes('context found')) {
                         // If it's a small structural element or has buttons, it's likely a bar
                         if (el.children.length < 10 || el.querySelector('button') || el.classList?.contains('justify-between')) {
                             el.style.display = 'none'; // Use both hide and remove
@@ -1488,7 +1510,8 @@ async function createServer() {
     AUTH_TOKEN = hashString(APP_PASSWORD + authSalt);
 
     app.use(compression());
-    app.use(express.json());
+    app.use(express.json({ limit: '50mb' }));
+    app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
     // Use a secure session secret from .env if available
     const sessionSecret = process.env.SESSION_SECRET || 'antigravity_secret_key_1337';
@@ -1921,6 +1944,54 @@ async function createServer() {
     return { server, wss, app, hasSSL };
 }
 
+// Inject Files via paste event
+async function injectFiles(cdp, files) {
+    const safeFiles = JSON.stringify(files);
+
+    const EXP = `(async () => {
+        try {
+            const editorEl = document.querySelector('[data-lexical-editor="true"]') || document.querySelector('#prompt-textarea') || document.querySelector('[contenteditable="true"]');
+            if (!editorEl) return { error: 'Editor not found' };
+
+            const filesData = ${safeFiles};
+            const dt = new DataTransfer();
+            
+            for (const file of filesData) {
+                const res = await fetch(file.dataUrl);
+                const blob = await res.blob();
+                const f = new File([blob], file.name || 'attachment', { type: file.type });
+                dt.items.add(f);
+            }
+            
+            const pasteEvent = new ClipboardEvent('paste', {
+                bubbles: true,
+                cancelable: true,
+                clipboardData: dt
+            });
+            
+            editorEl.focus();
+            editorEl.dispatchEvent(pasteEvent);
+            
+            return { success: true, count: filesData.length };
+        } catch(e) {
+            return { error: e.toString() };
+        }
+    })()`;
+
+    for (const ctx of cdp.contexts) {
+        try {
+            const res = await cdp.call("Runtime.evaluate", {
+                expression: EXP,
+                returnByValue: true,
+                awaitPromise: true,
+                contextId: ctx.id
+            });
+            if (res.result?.value?.success) return res.result.value;
+        } catch (e) { }
+    }
+    return { error: 'Context failed' };
+}
+
 // Main
 async function main() {
     try {
@@ -1993,6 +2064,20 @@ async function main() {
         app.get('/chat-status', async (req, res) => {
             if (!cdpConnection) return res.json({ hasChat: false, hasMessages: false, editorFound: false });
             const result = await hasChatOpen(cdpConnection);
+            res.json(result);
+        });
+
+        // Upload files
+        app.post('/upload-file', async (req, res) => {
+            console.log('--- Upload File Request Received ---');
+            const { files } = req.body;
+            console.log(`Received files payload length: ${files ? files.length : 'undefined'}`);
+            if (!files || !files.length) return res.status(400).json({ error: 'No files provided' });
+            if (!cdpConnection) return res.status(503).json({ error: 'CDP disconnected' });
+
+            console.log(`Injecting ${files.length} files via CDP...`);
+            const result = await injectFiles(cdpConnection, files);
+            console.log('Injection result:', result);
             res.json(result);
         });
 

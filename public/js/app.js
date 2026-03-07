@@ -196,6 +196,17 @@ async function loadSnapshot() {
 
         const data = await response.json();
 
+        // --- REVIEW BAR DETECTION ---
+        const reviewActions = document.getElementById('reviewActions');
+        if (reviewActions) {
+            const hasReview = data.html && (
+                data.html.toLowerCase().includes('accept all') ||
+                data.html.toLowerCase().includes('review changes') ||
+                data.html.toLowerCase().includes('files with changes')
+            );
+            reviewActions.style.display = hasReview ? 'flex' : 'none';
+        }
+
         // Capture scroll state BEFORE updating content
         const scrollPos = chatContainer.scrollTop;
         const scrollHeight = chatContainer.scrollHeight;
@@ -591,6 +602,49 @@ function scrollToBottom() {
         top: chatContainer.scrollHeight,
         behavior: 'smooth'
     });
+}
+
+// --- Remote Review Actions ---
+async function remoteReview(label) {
+    console.log(`[ACTION] Remote Review: ${label}`);
+
+    // Find matching element in current chat container to get index
+    const allButtons = Array.from(chatContainer.querySelectorAll('button, [role="button"], .cursor-pointer, span, div'))
+        .filter(el => {
+            if (el.children.length > 0) return false;
+            return true;
+        });
+
+    const matchingButtons = allButtons.filter(b => (b.innerText || b.textContent || '').includes(label));
+
+    // Default to first match for high-level actions
+    const btnIndex = 0;
+
+    try {
+        await fetchWithAuth('/remote-click', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                selector: 'button',
+                index: btnIndex,
+                textContent: label
+            })
+        });
+
+        // Provide visual feedback
+        const reviewActions = document.getElementById('reviewActions');
+        if (reviewActions) {
+            reviewActions.style.opacity = '0.5';
+            setTimeout(() => reviewActions.style.opacity = '1', 1000);
+        }
+
+        // Refresh snapshots to see the result
+        setTimeout(loadSnapshot, 500);
+        setTimeout(loadSnapshot, 1500);
+        setTimeout(loadSnapshot, 3000);
+    } catch (err) {
+        console.error('Remote review action failed:', err);
+    }
 }
 
 // --- Inputs ---
@@ -1125,25 +1179,52 @@ chatContainer.addEventListener('click', async (e) => {
         return;
     }
 
-    // --- Command Action Buttons (Run / Reject) ---
-    const btn = e.target.closest('button');
-    if (btn) {
-        const btnText = (btn.innerText || '').trim();
-        // Match "Run", "Run Alt+⏎", "Reject"
-        const isRun = /^Run/i.test(btnText);
-        const isReject = /^Reject$/i.test(btnText);
+    // --- Command Action Buttons (Run / Reject / Allow / Accept All / Reject All / Review) ---
+    // Sometimes buttons in the UI are div or span with role="button" or just specific text
+    const clickableContainer = e.target.closest('button, [role="button"], .cursor-pointer') || e.target;
 
-        if (isRun || isReject) {
-            btn.style.opacity = '0.5';
-            setTimeout(() => btn.style.opacity = '1', 300);
+    if (clickableContainer) {
+        let btnText = (clickableContainer.innerText || clickableContainer.textContent || '').trim();
+
+        // If the closest container is a large div, we might want to check the actual target text first
+        if (e.target !== clickableContainer && !btnText) {
+            btnText = (e.target.innerText || e.target.textContent || '').trim();
+        }
+
+        // Match "Run", "Run Alt+⏎", "Reject", "Allow This Conversation", "Accept all", "Reject all" etc
+        const isRun = /^Run/i.test(btnText);
+        const isReject = /^Reject/i.test(btnText); // Matches "Reject" and "Reject all"
+        const isAllow = /Allow/i.test(btnText);
+        const isAcceptAll = /^Accept all/i.test(btnText);
+        const isReview = /Review Changes/i.test(btnText);
+
+        if (isRun || isReject || isAllow || isAcceptAll || isReview) {
+
+            // Visual feedback
+            const originalOpacity = clickableContainer.style.opacity;
+            clickableContainer.style.opacity = '0.5';
+            setTimeout(() => clickableContainer.style.opacity = originalOpacity || '1', 300);
 
             // Determine which occurrence of this button text the user tapped
-            const label = isRun ? 'Run' : 'Reject';
-            const allButtons = Array.from(chatContainer.querySelectorAll('button'));
+            let label = '';
+            if (isRun) label = 'Run';
+            else if (isAcceptAll) label = 'Accept all';
+            else if (isReject && btnText.toLowerCase().includes('all')) label = 'Reject all';
+            else if (isReject) label = 'Reject';
+            else if (isAllow) label = 'Allow';
+            else if (isReview) label = 'Review Changes';
+
+            const allButtons = Array.from(chatContainer.querySelectorAll('button, [role="button"], .cursor-pointer, span, div'))
+                .filter(el => {
+                    if (el.children.length > 0) return false; // leaf nodes only for accurate indexing
+                    return true;
+                });
 
             // Filter to only those that match our specific label (to handle multiple commands)
-            const matchingButtons = allButtons.filter(b => (b.innerText || '').includes(label));
-            const btnIndex = matchingButtons.indexOf(btn);
+            const matchingButtons = allButtons.filter(b => (b.innerText || b.textContent || '').includes(label));
+
+            // Also add a fallback to target text directly as the click target might be the exact node
+            const btnIndex = Math.max(0, matchingButtons.indexOf(e.target));
 
             try {
                 await fetchWithAuth('/remote-click', {
@@ -1174,3 +1255,121 @@ setInterval(fetchAppState, 5000);
 // Check chat status initially and periodically
 checkChatStatus();
 setInterval(checkChatStatus, 10000); // Check every 10 seconds
+
+// --- Attachments & Paste Handling ---
+const attachBtn = document.getElementById('attachBtn');
+const attachmentMenu = document.getElementById('attachmentMenu');
+const fileAttachmentInput = document.getElementById('fileAttachmentInput');
+
+if (attachBtn && attachmentMenu) {
+    attachBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        attachmentMenu.classList.toggle('show');
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!attachmentMenu.contains(e.target) && e.target !== attachBtn) {
+            attachmentMenu.classList.remove('show');
+        }
+    });
+}
+
+function triggerFileUpload() {
+    if (fileAttachmentInput) fileAttachmentInput.click();
+    if (attachmentMenu) attachmentMenu.classList.remove('show');
+}
+
+function insertMention() {
+    messageInput.value += (messageInput.value.length > 0 && !messageInput.value.endsWith(' ') ? ' @' : '@');
+    messageInput.focus();
+    if (attachmentMenu) attachmentMenu.classList.remove('show');
+}
+
+function insertWorkflow() {
+    messageInput.value += (messageInput.value.length > 0 && !messageInput.value.endsWith(' ') ? ' /' : '/');
+    messageInput.focus();
+    if (attachmentMenu) attachmentMenu.classList.remove('show');
+}
+
+async function handleFileUploads(files) {
+    if (!files || files.length === 0) return;
+
+    // Check if chat is open, if not, create one
+    if (!chatIsOpen) {
+        await startNewChat();
+        await new Promise(r => setTimeout(r, 1000));
+    }
+
+    const filePayloads = [];
+    for (const file of files) {
+        // Only process supported types roughly (images, text, videos, pdfs etc - server will handle better validation)
+        const reader = new FileReader();
+        const base64Promise = new Promise(resolve => {
+            reader.onload = (e) => resolve(e.target.result);
+            reader.readAsDataURL(file);
+        });
+        const base64DataUrl = await base64Promise;
+        filePayloads.push({
+            name: file.name,
+            type: file.type,
+            dataUrl: base64DataUrl
+        });
+    }
+
+    if (filePayloads.length === 0) return;
+
+    try {
+        console.log(`Uploading ${filePayloads.length} files...`);
+        messageInput.placeholder = "Uploading...";
+        const res = await fetchWithAuth('/upload-file', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ files: filePayloads })
+        });
+        const data = await res.json();
+        console.log('Upload response:', data);
+        if (!data.success) {
+            console.error('Upload failed:', data.error);
+            alert('Upload failed: ' + data.error);
+        } else {
+            console.log('Upload successful. Refreshing snapshot.');
+            // Trigger snapshot refresh to see the attached files in the UI
+            setTimeout(loadSnapshot, 500);
+            setTimeout(loadSnapshot, 1500);
+        }
+    } catch (e) {
+        console.error('Upload error:', e);
+        alert('Upload error: ' + e.message);
+    } finally {
+        messageInput.placeholder = "Message...";
+    }
+}
+
+if (fileAttachmentInput) {
+    fileAttachmentInput.addEventListener('change', (e) => {
+        handleFileUploads(e.target.files);
+        fileAttachmentInput.value = ''; // Reset
+    });
+}
+
+if (messageInput) {
+    messageInput.addEventListener('paste', async (e) => {
+        // Allow default text paste to happen concurrently
+        const items = (e.clipboardData || window.clipboardData).items;
+        const files = [];
+
+        for (let index in items) {
+            const item = items[index];
+            if (item.kind === 'file') {
+                const file = item.getAsFile();
+                if (file) files.push(file);
+            }
+        }
+
+        if (files.length > 0) {
+            // Note: We don't preventDefault so text (if any) still pastes, 
+            // but we also capture the files.
+            await handleFileUploads(files);
+        }
+    });
+}

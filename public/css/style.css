@@ -71,6 +71,7 @@ body {
 .header h1 span {
     background: var(--accent-gradient);
     -webkit-background-clip: text;
+    background-clip: text;
     -webkit-text-fill-color: transparent;
 }
 
@@ -877,4 +878,176 @@ textarea::-webkit-scrollbar {
 
 .mt-4 {
     margin-top: 24px;
+}
+
+/* Attachment Feature Styles */
+.attach-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    flex-shrink: 0;
+}
+
+.attach-btn:hover {
+    color: var(--text-main);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.attach-btn:active {
+    transform: scale(0.92);
+}
+
+.attach-btn svg {
+    width: 22px;
+    height: 22px;
+}
+
+.attachment-menu {
+    position: absolute;
+    bottom: 80px;
+    left: 16px;
+    background: rgba(30, 41, 59, 0.95);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(10px) scale(0.95);
+    transform-origin: bottom left;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.attachment-menu.show {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0) scale(1);
+}
+
+.attach-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    color: var(--text-main);
+    font-size: 15px;
+    font-weight: 500;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.attach-menu-item:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.attach-menu-item:active {
+    background: var(--bg-input);
+    transform: scale(0.98);
+}
+
+.attach-menu-item svg {
+    color: var(--text-muted);
+}
+
+/* Review Actions Bar (Mobile) */
+.review-actions {
+    display: flex;
+    gap: 8px;
+    padding: 12px 16px;
+    background: rgba(15, 23, 42, 0.8);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    overflow-x: auto;
+    scrollbar-width: none;
+    z-index: 151;
+    /* Above input section */
+    animation: slideUpFade 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.review-actions::-webkit-scrollbar {
+    display: none;
+}
+
+@keyframes slideUpFade {
+    from {
+        transform: translateY(10px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.review-btn {
+    flex: 1;
+    min-width: 100px;
+    height: 44px;
+    border: none;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    white-space: nowrap;
+}
+
+.review-btn svg {
+    width: 18px;
+    height: 18px;
+}
+
+.review-btn.accept {
+    background: rgba(34, 197, 94, 0.15);
+    color: #4ade80;
+    border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.review-btn.accept:active {
+    background: rgba(34, 197, 94, 0.3);
+    transform: scale(0.96);
+}
+
+.review-btn.reject {
+    background: rgba(239, 68, 68, 0.15);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.review-btn.reject:active {
+    background: rgba(239, 68, 68, 0.3);
+    transform: scale(0.96);
+}
+
+.review-btn.inspect {
+    background: rgba(99, 102, 241, 0.15);
+    color: #818cf8;
+    border: 1px solid rgba(99, 102, 241, 0.3);
+}
+
+.review-btn.inspect:active {
+    background: rgba(99, 102, 241, 0.3);
+    transform: scale(0.96);
 }
