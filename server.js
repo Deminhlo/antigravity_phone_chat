@@ -202,7 +202,7 @@ async function connectCDP(url) {
 
 // Capture chat snapshot
 async function captureSnapshot(cdp) {
-    const CAPTURE_SCRIPT = `(async () => {
+    const CAPTURE_SCRIPT = `(() => {
         const cascade = document.getElementById('conversation') || document.getElementById('chat') || document.getElementById('cascade');
         if (!cascade) {
             // Debug info
@@ -293,24 +293,15 @@ async function captureSnapshot(cdp) {
             });
         } catch (globalErr) { }
 
-        // Convert local images to base64
+        // Image fetching in background is disabled to prevent CDP freeze
+
         const images = clone.querySelectorAll('img');
-        const promises = Array.from(images).map(async (img) => {
+        images.forEach(img => {
             const rawSrc = img.getAttribute('src');
             if (rawSrc && (rawSrc.startsWith('/') || rawSrc.startsWith('vscode-file:')) && !rawSrc.startsWith('data:')) {
-                try {
-                    const res = await fetch(rawSrc);
-                    const blob = await res.blob();
-                    await new Promise(r => {
-                        const reader = new FileReader();
-                        reader.onloadend = () => { img.src = reader.result; r(); };
-                        reader.onerror = () => r();
-                        reader.readAsDataURL(blob);
-                    });
-                } catch(e) {}
+                // Just use the relative/original src, we can't reliably fetch it in the background
             }
         });
-        await Promise.all(promises);
 
         // Fix inline file references: Antigravity nests <div> elements inside
         // <span> and <p> tags (e.g. file-type icons). Browsers auto-close <p> and
@@ -378,7 +369,6 @@ async function captureSnapshot(cdp) {
             const result = await cdp.call("Runtime.evaluate", {
                 expression: CAPTURE_SCRIPT,
                 returnByValue: true,
-                awaitPromise: true,
                 contextId: ctx.id
             });
 
