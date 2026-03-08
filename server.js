@@ -204,6 +204,35 @@ async function connectCDP(url) {
     });
 
     await call("Runtime.enable", {});
+    try {
+        await call("Page.enable", {});
+        await call("Emulation.setFocusEmulationEnabled", { enabled: true });
+
+        // Patch requestAnimationFrame so VS Code keeps rendering DOM updates in the background
+        await call("Runtime.evaluate", {
+            expression: `
+                if (!window.__raf_patched) {
+                    window.__raf_patched = true;
+                    const origRaf = window.requestAnimationFrame;
+                    window.requestAnimationFrame = function(cb) {
+                        if (document.hidden || document.visibilityState === 'hidden') {
+                            // Use setTimeout as a fallback which Chromium throttles to max 1 Hz, 
+                            // ensuring at least 1 update per second in background tabs.
+                            return setTimeout(() => cb(performance.now()), 16);
+                        }
+                        return origRaf.call(window, cb);
+                    };
+                    const origCancel = window.cancelAnimationFrame;
+                    window.cancelAnimationFrame = function(id) {
+                        clearTimeout(id);
+                        origCancel.call(window, id);
+                    };
+                }
+            `
+        });
+    } catch (e) {
+        console.warn("⚠️  Failed to set focus emulation (might be unsupported):", e.message);
+    }
     await new Promise(r => setTimeout(r, 1000));
 
     return { ws, call, contexts };
