@@ -24,6 +24,9 @@ const historyList = document.getElementById('historyList');
 const mcpBtn = document.getElementById('mcpBtn');
 const mcpText = document.getElementById('mcpText');
 
+const autoAcceptSettingBtn = document.getElementById('autoAcceptSettingBtn');
+const autoAcceptText = document.getElementById('autoAcceptText');
+
 // --- State ---
 let autoRefreshEnabled = true;
 let userIsScrolling = false;
@@ -1459,17 +1462,34 @@ if (messageInput) {
 
 // --- Auto-Accept Initialization ---
 const autoAcceptBtn = document.getElementById('autoAcceptBtn');
-if (autoAcceptBtn) {
-    // Load from local storage
-    const storedState = localStorage.getItem('antigravity_auto_accept');
-    if (storedState === 'true') {
-        autoAcceptBtn.classList.add('active');
-    }
 
-    // Toggle logic
+function updateAutoAcceptUi(enabled) {
+    if (autoAcceptBtn) {
+        autoAcceptBtn.classList.toggle('active', enabled);
+    }
+    if (autoAcceptSettingBtn) {
+        autoAcceptSettingBtn.classList.toggle('active', enabled);
+        if (autoAcceptText) autoAcceptText.textContent = enabled ? 'Auto: On' : 'Auto: Off';
+    }
+    localStorage.setItem('antigravity_auto_accept', enabled);
+}
+
+// Load initial state
+const storedAutoAccept = localStorage.getItem('antigravity_auto_accept') === 'true';
+updateAutoAcceptUi(storedAutoAccept);
+
+if (autoAcceptBtn) {
     autoAcceptBtn.addEventListener('click', () => {
-        const isActive = autoAcceptBtn.classList.toggle('active');
-        localStorage.setItem('antigravity_auto_accept', isActive);
-        console.log(`Auto-Accept is now ${isActive ? 'ENABLED' : 'DISABLED'}`);
+        const newState = !autoAcceptBtn.classList.contains('active');
+        updateAutoAcceptUi(newState);
+        console.log(`Auto-Accept is now ${newState ? 'ENABLED' : 'DISABLED'}`);
+    });
+}
+
+if (autoAcceptSettingBtn) {
+    autoAcceptSettingBtn.addEventListener('click', () => {
+        const newState = !autoAcceptSettingBtn.classList.contains('active');
+        updateAutoAcceptUi(newState);
+        console.log(`Auto-Accept (Setting) is now ${newState ? 'ENABLED' : 'DISABLED'}`);
     });
 }

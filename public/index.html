@@ -73,6 +73,12 @@
             </svg>
             <span id="mcpText">MCP: On</span>
         </div>
+        <div class="setting-chip" id="autoAcceptSettingBtn" aria-label="Toggle Auto-Accept">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M20 6L9 17l-5-5" />
+            </svg>
+            <span id="autoAcceptText">Auto: Off</span>
+        </div>
         <div class="setting-chip" id="syncStats" style="cursor: default; border: none; background: transparent;">
             <span id="statsText" style="font-size: 10px; opacity: 0.6;">Syncing...</span>
         </div>
@@ -147,11 +153,13 @@
 
     <!-- Review Actions Bar (Visible only when changes are pending) -->
     <div class="review-actions" id="reviewActions" style="display: none;">
-        <button class="review-btn auto-accept" id="autoAcceptBtn" title="Auto-Accept">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-            </svg>
-        </button>
+        <div id="autoAcceptContainer">
+            <button class="review-btn auto-accept" id="autoAcceptBtn" title="Auto-Accept">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+                </svg>
+            </button>
+        </div>
         <button class="review-btn accept" onclick="remoteReview('Accept all')">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                 <polyline points="20 6 9 17 4 12"></polyline>
