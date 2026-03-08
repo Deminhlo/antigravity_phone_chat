@@ -196,15 +196,51 @@ async function loadSnapshot() {
 
         const data = await response.json();
 
-        // --- REVIEW BAR DETECTION ---
+        // --- REVIEW BAR & AUTO-ACCEPT DETECTION ---
         const reviewActions = document.getElementById('reviewActions');
-        if (reviewActions) {
-            const hasReview = data.html && (
-                data.html.toLowerCase().includes('accept all') ||
-                data.html.toLowerCase().includes('review changes') ||
-                data.html.toLowerCase().includes('files with changes')
-            );
+        const autoAcceptContainer = document.getElementById('autoAcceptContainer');
+
+        if (reviewActions && autoAcceptContainer) {
+            const acceptAllStr = 'accept all';
+            const htmlLower = data.html ? data.html.toLowerCase() : '';
+
+            const hasReview = htmlLower.includes(acceptAllStr) ||
+                htmlLower.includes('review changes') ||
+                htmlLower.includes('files with changes');
+
             reviewActions.style.display = hasReview ? 'flex' : 'none';
+            autoAcceptContainer.style.display = hasReview ? 'flex' : 'none';
+
+            // Auto-Accept Logic
+            if (hasReview && htmlLower.includes(acceptAllStr)) {
+                const autoAcceptToggle = document.getElementById('autoAcceptToggle');
+                const isAutoAcceptEnabled = autoAcceptToggle && autoAcceptToggle.checked;
+
+                // Use a global variable to prevent rapid re-triggering while snapshot is updating
+                if (isAutoAcceptEnabled && !window._isAutoAccepting) {
+                    console.log('🤖 Auto-Accept triggered!');
+                    window._isAutoAccepting = true;
+
+                    // Visual feedback on the button
+                    const acceptBtn = reviewActions.querySelector('.accept');
+                    if (acceptBtn) {
+                        acceptBtn.style.transform = 'scale(0.95)';
+                        acceptBtn.style.opacity = '0.7';
+                        setTimeout(() => {
+                            acceptBtn.style.transform = '';
+                            acceptBtn.style.opacity = '1';
+                        }, 300);
+                    }
+
+                    // Fire the click command
+                    remoteReview('Accept all');
+
+                    // Release the lock after 2 seconds (allows time for UI to update and removing 'Accept all')
+                    setTimeout(() => {
+                        window._isAutoAccepting = false;
+                    }, 2000);
+                }
+            }
         }
 
         // Capture scroll state BEFORE updating content
@@ -612,20 +648,21 @@ async function remoteReview(label) {
     const allButtons = Array.from(chatContainer.querySelectorAll('button, [role="button"], .cursor-pointer, span, div'))
         .filter(el => {
             if (el.children.length > 0) return false;
+            if (el.closest('.xterm, pre, code, .component-shared-terminal')) return false;
             return true;
         });
 
     const matchingButtons = allButtons.filter(b => (b.innerText || b.textContent || '').includes(label));
 
-    // Default to first match for high-level actions
-    const btnIndex = 0;
+    // Default to the LAST match for high-level actions, to ensure we click the most recent one
+    const btnIndex = Math.max(0, matchingButtons.length - 1);
 
     try {
         await fetchWithAuth('/remote-click', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                selector: 'button',
+                selector: 'button, [role="button"], .cursor-pointer, div, span, a',
                 index: btnIndex,
                 textContent: label
             })
@@ -1231,7 +1268,7 @@ chatContainer.addEventListener('click', async (e) => {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        selector: 'button',
+                        selector: 'button, [role="button"], .cursor-pointer, div, span, a',
                         index: btnIndex >= 0 ? btnIndex : 0,
                         textContent: label
                     })
@@ -1354,7 +1391,7 @@ if (fileAttachmentInput) {
 
 if (messageInput) {
     messageInput.addEventListener('paste', async (e) => {
-        // Allow default text paste to happen concurrently
+        // ... (existing paste handling) ...
         const items = (e.clipboardData || window.clipboardData).items;
         const files = [];
 
@@ -1367,9 +1404,23 @@ if (messageInput) {
         }
 
         if (files.length > 0) {
-            // Note: We don't preventDefault so text (if any) still pastes, 
-            // but we also capture the files.
             await handleFileUploads(files);
         }
+    });
+}
+
+// --- Auto-Accept Initialization ---
+const autoAcceptToggle = document.getElementById('autoAcceptToggle');
+if (autoAcceptToggle) {
+    // Load from local storage
+    const storedState = localStorage.getItem('antigravity_auto_accept');
+    if (storedState === 'true') {
+        autoAcceptToggle.checked = true;
+    }
+
+    // Save on toggle
+    autoAcceptToggle.addEventListener('change', (e) => {
+        localStorage.setItem('antigravity_auto_accept', e.target.checked);
+        console.log(`Auto-Accept is now ${e.target.checked ? 'ENABLED' : 'DISABLED'}`);
     });
 }

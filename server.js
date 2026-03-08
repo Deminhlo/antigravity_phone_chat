@@ -613,6 +613,8 @@ async function clickElement(cdp, { selector, index, textContent }) {
             const filterText = ${safeText};
             if (filterText) {
                 elements = elements.filter(el => {
+                    if (el.closest('.xterm, pre, code, .component-shared-terminal')) return false;
+
                     const txt = (el.innerText || el.textContent || '').trim();
                     const firstLine = txt.split('\\n')[0].trim();
                     // Match if first line matches (thought blocks) or if it contains the label (buttons)
@@ -745,6 +747,7 @@ async function setModel(cdp, modelName) {
                 const allEls = Array.from(document.querySelectorAll('*'));
                 const textNodes = allEls.filter(el => {
                     if (el.children.length > 0) return false;
+                    if (el.closest('.xterm, pre, code, .component-shared-terminal')) return false; // Exclude terminal/code blocks
                     const txt = el.textContent;
                     return KNOWN_KEYWORDS.some(k => txt.includes(k));
                 });
@@ -2010,8 +2013,15 @@ async function main() {
         // Remote Click
         app.post('/remote-click', async (req, res) => {
             const { selector, index, textContent } = req.body;
-            if (!cdpConnection) return res.status(503).json({ error: 'CDP disconnected' });
+            console.log(`🖱️  Remote Click Request: "${textContent}" (index: ${index}) using selector '${selector}'`);
+
+            if (!cdpConnection) {
+                console.error(`❌  Remote Click Failed: CDP disconnected`);
+                return res.status(503).json({ error: 'CDP disconnected' });
+            }
+
             const result = await clickElement(cdpConnection, { selector, index, textContent });
+            console.log(`   └─ Result: ${JSON.stringify(result)}`);
             res.json(result);
         });
 
