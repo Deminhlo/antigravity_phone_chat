@@ -28,13 +28,16 @@ const SERVER_PORT = process.env.PORT || 3000;
 const APP_PASSWORD = process.env.APP_PASSWORD || 'antigravity';
 const AUTH_COOKIE_NAME = 'ag_auth_token';
 // Note: hashString is defined later, so we'll initialize the token inside createServer or use a simple string for now.
-let AUTH_TOKEN = 'ag_default_token';
+let AUTH_TOKEN = null;
 
 
 // Shared CDP connection
 let cdpConnection = null;
 let lastSnapshot = null;
 let lastSnapshotHash = null;
+let targetCdpUrl = null;
+let lastErrorLog = 0;
+
 
 // Kill any existing process on the server port (prevents EADDRINUSE)
 function killPortProcess(port) {
@@ -1393,6 +1396,13 @@ function isLocalRequest(req) {
 
 // Initialize CDP connection
 async function initCDP() {
+    if (targetCdpUrl) {
+        console.log(`🔍 Connecting to manual CDP endpoint: ${targetCdpUrl}...`);
+        cdpConnection = await connectCDP(targetCdpUrl);
+        console.log(`✅ Connected! Found ${cdpConnection.contexts.length} execution contexts\n`);
+        return;
+    }
+
     console.log('🔍 Discovering Antigravity CDP endpoint...');
     const cdpInfo = await discoverCDP();
     console.log(`✅ Found Antigravity on port ${cdpInfo.port} `);
@@ -1404,7 +1414,6 @@ async function initCDP() {
 
 // Background polling
 async function startPolling(wss) {
-    let lastErrorLog = 0;
     let isConnecting = false;
 
     const poll = async () => {
@@ -1576,6 +1585,47 @@ async function createServer() {
         name: "Antigravity Remote Control",
         version: "1.0.0"
     });
+
+    mcpServer.tool("antigravity_list_instances",
+        "Lists all currently open Antigravity desktop IDE windows/projects.",
+        {},
+        async () => {
+            try {
+                const instances = [];
+                for (const port of PORTS) {
+                    try {
+                        const list = await getJson(`http://127.0.0.1:${port}/json/list`);
+                        list.filter(t => t.url?.includes('workbench.html') || (t.title && t.title.includes('workbench')))
+                            .forEach(t => instances.push({
+                                title: t.title,
+                                id: t.id,
+                                webSocketDebuggerUrl: t.webSocketDebuggerUrl
+                            }));
+                    } catch (e) { /* ignore unreachable ports */ }
+                }
+                return { content: [{ type: "text", text: JSON.stringify(instances, null, 2) }] };
+            } catch (err) {
+                return { content: [{ type: "text", text: `Error: ${err.message}` }] };
+            }
+        }
+    );
+
+    mcpServer.tool("antigravity_switch_instance",
+        "Switches the server's control to a specific Antigravity window using its webSocketDebuggerUrl.",
+        { webSocketDebuggerUrl: z.string().describe("The webSocketDebuggerUrl of the instance") },
+        async ({ webSocketDebuggerUrl }) => {
+            try {
+                console.log(`🔌 MCP Client requested switch to: ${webSocketDebuggerUrl}`);
+                targetCdpUrl = webSocketDebuggerUrl;
+                if (cdpConnection && cdpConnection.ws) {
+                    cdpConnection.ws.terminate(); // The polling loop will automatically reconnect to targetCdpUrl
+                }
+                return { content: [{ type: "text", text: "Successfully initiated switch to the requested instance." }] };
+            } catch (err) {
+                return { content: [{ type: "text", text: `Failed to switch instance: ${err.message}` }] };
+            }
+        }
+    );
 
     mcpServer.tool("antigravity_get_snapshot",
         "Returns the current HTML DOM snapshot of the Antigravity desktop window.",
