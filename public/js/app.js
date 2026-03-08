@@ -21,6 +21,9 @@ const modelText = document.getElementById('modelText');
 const historyLayer = document.getElementById('historyLayer');
 const historyList = document.getElementById('historyList');
 
+const mcpBtn = document.getElementById('mcpBtn');
+const mcpText = document.getElementById('mcpText');
+
 // --- State ---
 let autoRefreshEnabled = true;
 let userIsScrolling = false;
@@ -31,6 +34,7 @@ let idleTimer = null;
 let lastHash = '';
 let currentMode = 'Fast';
 let chatIsOpen = true; // Track if a chat is currently open
+let isMcpEnabled = true;
 
 
 // --- Auth Utilities ---
@@ -71,8 +75,27 @@ async function fetchAppState() {
             modelText.textContent = data.model;
         }
 
+        // MCP Status Sync
+        if (typeof data.mcpEnabled !== 'undefined') {
+            updateMcpUi(data.mcpEnabled);
+        }
+
         console.log('[SYNC] State refreshed from Desktop:', data);
     } catch (e) { console.error('[SYNC] Failed to sync state', e); }
+}
+
+function updateMcpUi(enabled) {
+    isMcpEnabled = enabled;
+    mcpText.textContent = enabled ? 'MCP: On' : 'MCP: Off';
+    if (enabled) {
+        mcpBtn.classList.add('active');
+        mcpBtn.style.color = 'var(--text-color)';
+        mcpBtn.style.opacity = '1';
+    } else {
+        mcpBtn.classList.remove('active');
+        mcpBtn.style.color = '#ef4444'; // Red-ish to indicate off
+        mcpBtn.style.opacity = '0.8';
+    }
 }
 
 // --- SSL Banner ---
@@ -149,6 +172,9 @@ function connectWebSocket() {
         }
         if (data.type === 'snapshot_update' && autoRefreshEnabled && !userIsScrolling) {
             loadSnapshot();
+        }
+        if (data.type === 'mcp_state') {
+            updateMcpUi(data.enabled);
         }
     };
 
@@ -1123,9 +1149,31 @@ modelBtn.addEventListener('click', () => {
                 modelText.textContent = prev;
             }
         } catch (e) {
+            alert('Failed to connect');
             modelText.textContent = prev;
         }
     });
+});
+
+mcpBtn.addEventListener('click', async () => {
+    const newState = !isMcpEnabled;
+    mcpText.textContent = 'Sync...';
+    try {
+        const res = await fetchWithAuth('/toggle-mcp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled: newState })
+        });
+        const data = await res.json();
+        if (data.success) {
+            updateMcpUi(data.mcpEnabled);
+        } else {
+            updateMcpUi(isMcpEnabled);
+        }
+    } catch (e) {
+        alert('Failed to toggle MCP server');
+        updateMcpUi(isMcpEnabled);
+    }
 });
 
 // --- Viewport / Keyboard Handling ---

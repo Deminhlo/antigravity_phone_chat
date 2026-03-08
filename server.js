@@ -37,6 +37,7 @@ let lastSnapshot = null;
 let lastSnapshotHash = null;
 let targetCdpUrl = null;
 let lastErrorLog = 0;
+let mcpEnabled = true;
 
 
 // Kill any existing process on the server port (prevents EADDRINUSE)
@@ -1523,6 +1524,7 @@ async function createServer() {
     let mcpTransport = null;
 
     app.post("/mcp/message", async (req, res) => {
+        if (!mcpEnabled) return res.status(403).json({ error: "MCP is disabled" });
         if (!mcpTransport) {
             return res.status(400).send("SSE connection not established");
         }
@@ -1685,6 +1687,12 @@ async function createServer() {
     );
 
     app.get("/mcp/sse", async (req, res) => {
+        if (!mcpEnabled) return res.status(403).json({ error: "MCP is disabled" });
+
+        // Clean up previous transport if memory leak isn't garbage collected
+        if (mcpTransport && typeof mcpTransport.close === 'function') {
+            mcpTransport.close();
+        }
         mcpTransport = new SSEServerTransport("/mcp/message", res);
         await mcpServer.connect(mcpTransport);
     });
@@ -2160,9 +2168,24 @@ async function main() {
 
         // Get App State
         app.get('/app-state', async (req, res) => {
-            if (!cdpConnection) return res.json({ mode: 'Unknown', model: 'Unknown' });
-            const result = await getAppState(cdpConnection);
-            res.json(result);
+            let result = { mode: 'Unknown', model: 'Unknown' };
+            if (cdpConnection) {
+                result = await getAppState(cdpConnection);
+            }
+            res.json({ ...result, mcpEnabled });
+        });
+
+        // Toggle MCP Status
+        app.post('/toggle-mcp', (req, res) => {
+            const { enabled } = req.body;
+            mcpEnabled = !!enabled;
+            // Send broadcast to update all connected clients
+            wss.clients.forEach(client => {
+                if (client.readyState === WebSocket.OPEN) {
+                    client.send(JSON.stringify({ type: 'mcp_state', enabled: mcpEnabled }));
+                }
+            });
+            res.json({ success: true, mcpEnabled });
         });
 
         // Start New Chat
