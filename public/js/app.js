@@ -213,8 +213,8 @@ async function loadSnapshot() {
 
             // Auto-Accept Logic
             if (hasReview && htmlLower.includes(acceptAllStr)) {
-                const autoAcceptToggle = document.getElementById('autoAcceptToggle');
-                const isAutoAcceptEnabled = autoAcceptToggle && autoAcceptToggle.checked;
+                const autoAcceptBtn = document.getElementById('autoAcceptBtn');
+                const isAutoAcceptEnabled = autoAcceptBtn && autoAcceptBtn.classList.contains('active');
 
                 // Use a global variable to prevent rapid re-triggering while snapshot is updating
                 if (isAutoAcceptEnabled && !window._isAutoAccepting) {
@@ -1410,17 +1410,18 @@ if (messageInput) {
 }
 
 // --- Auto-Accept Initialization ---
-const autoAcceptToggle = document.getElementById('autoAcceptToggle');
-if (autoAcceptToggle) {
+const autoAcceptBtn = document.getElementById('autoAcceptBtn');
+if (autoAcceptBtn) {
     // Load from local storage
     const storedState = localStorage.getItem('antigravity_auto_accept');
     if (storedState === 'true') {
-        autoAcceptToggle.checked = true;
+        autoAcceptBtn.classList.add('active');
     }
 
-    // Save on toggle
-    autoAcceptToggle.addEventListener('change', (e) => {
-        localStorage.setItem('antigravity_auto_accept', e.target.checked);
-        console.log(`Auto-Accept is now ${e.target.checked ? 'ENABLED' : 'DISABLED'}`);
+    // Toggle logic
+    autoAcceptBtn.addEventListener('click', () => {
+        const isActive = autoAcceptBtn.classList.toggle('active');
+        localStorage.setItem('antigravity_auto_accept', isActive);
+        console.log(`Auto-Accept is now ${isActive ? 'ENABLED' : 'DISABLED'}`);
     });
 }

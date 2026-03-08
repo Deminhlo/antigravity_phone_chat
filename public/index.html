@@ -138,22 +138,13 @@
     <input type="file" id="fileAttachmentInput" multiple accept="image/*,video/*,.pdf,.doc,.docx,.txt"
         style="display: none;">
 
-    <!-- Auto-Accept Toggle Config -->
-    <div class="auto-accept-container" style="display: none;" id="autoAcceptContainer">
-        <label class="auto-accept-label" for="autoAcceptToggle">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-            </svg>
-            Auto-Accept
-        </label>
-        <label class="toggle-switch">
-            <input type="checkbox" id="autoAcceptToggle">
-            <span class="toggle-slider"></span>
-        </label>
-    </div>
-
     <!-- Review Actions Bar (Visible only when changes are pending) -->
     <div class="review-actions" id="reviewActions" style="display: none;">
+        <button class="review-btn auto-accept" id="autoAcceptBtn" title="Auto-Accept">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+            </svg>
+        </button>
         <button class="review-btn accept" onclick="remoteReview('Accept all')">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                 <polyline points="20 6 9 17 4 12"></polyline>
