@@ -14,6 +14,11 @@ import { dirname, join } from 'path';
 import { inspectUI } from './ui_inspector.js';
 import { execSync } from 'child_process';
 
+// MCP SDK
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { z } from 'zod';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -1503,6 +1508,17 @@ async function createServer() {
     AUTH_TOKEN = hashString(APP_PASSWORD + authSalt);
 
     app.use(compression());
+
+    // MCP Transport is declared here so that the POST route can be mounted
+    // BEFORE express.json() reads and consumes the entire request stream.
+    let mcpTransport = null;
+
+    app.post("/mcp/message", async (req, res) => {
+        if (!mcpTransport) {
+            return res.status(400).send("SSE connection not established");
+        }
+        await mcpTransport.handlePostMessage(req, res);
+    });
     app.use(express.json({ limit: '50mb' }));
     app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
@@ -1546,7 +1562,7 @@ async function createServer() {
         }
 
         // If it's an API request, return 401, otherwise redirect to login
-        if (req.xhr || req.headers.accept?.includes('json') || req.path.startsWith('/snapshot') || req.path.startsWith('/send')) {
+        if (req.xhr || req.headers.accept?.includes('json') || req.path.startsWith('/snapshot') || req.path.startsWith('/send') || req.path.startsWith('/mcp')) {
             res.status(401).json({ error: 'Unauthorized' });
         } else {
             res.redirect('/login.html');
@@ -1554,6 +1570,75 @@ async function createServer() {
     });
 
     app.use(express.static(join(__dirname, 'public')));
+
+    // --- MCP SERVER INTEGRATION ---
+    const mcpServer = new McpServer({
+        name: "Antigravity Remote Control",
+        version: "1.0.0"
+    });
+
+    mcpServer.tool("antigravity_get_snapshot",
+        "Returns the current HTML DOM snapshot of the Antigravity desktop window.",
+        {},
+        async () => {
+            if (!lastSnapshot) return { content: [{ type: "text", text: "Error: No snapshot available yet" }] };
+            return { content: [{ type: "text", text: lastSnapshot.html || (lastSnapshot.error || 'Empty snapshot') }] };
+        }
+    );
+
+    mcpServer.tool("antigravity_send_message",
+        "Types a message into the chat input box and clicks submit.",
+        { message: z.string().describe("The message to send") },
+        async ({ message }) => {
+            if (!cdpConnection) return { content: [{ type: "text", text: "Error: CDP not connected" }] };
+            try {
+                const result = await injectMessage(cdpConnection, message);
+                return {
+                    content: [{ type: "text", text: result.ok ? "Message sent successfully" : `Failed: ${result.reason}` }]
+                };
+            } catch (err) {
+                return { content: [{ type: "text", text: `Error: ${err.message}` }] };
+            }
+        }
+    );
+
+    mcpServer.tool("antigravity_click_element",
+        "Clicks any element on the screen using a CSS selector and index.",
+        {
+            selector: z.string().describe("CSS selector of the element"),
+            index: z.number().describe("0-based index of the matched element"),
+            textContent: z.string().optional().describe("Optional text content to filter by")
+        },
+        async ({ selector, index, textContent }) => {
+            if (!cdpConnection) return { content: [{ type: "text", text: "Error: CDP not connected" }] };
+            try {
+                const element = await clickElement(cdpConnection, selector, index, textContent);
+                if (element && !element.error) {
+                    return { content: [{ type: "text", text: "Element clicked successfully" }] };
+                } else {
+                    return { content: [{ type: "text", text: `Failed: ${element ? element.error : 'Element not found'}` }] };
+                }
+            } catch (err) {
+                return { content: [{ type: "text", text: `Error: ${err.message}` }] };
+            }
+        }
+    );
+
+    mcpServer.tool("antigravity_read_chat_history",
+        "Extracts the recent conversation history between the user and the Antigravity agent.",
+        {},
+        async () => {
+            if (!cdpConnection) return { content: [{ type: "text", text: "Error: CDP not connected" }] };
+            const history = await getChatHistory(cdpConnection);
+            return { content: [{ type: "text", text: history ? JSON.stringify(history, null, 2) : "No chat history found or failed to parse" }] };
+        }
+    );
+
+    app.get("/mcp/sse", async (req, res) => {
+        mcpTransport = new SSEServerTransport("/mcp/message", res);
+        await mcpServer.connect(mcpTransport);
+    });
+    // --- END MCP SERVER ---
 
     // Login endpoint
     app.post('/login', (req, res) => {
@@ -1688,84 +1773,84 @@ async function createServer() {
         if (!cdpConnection) return res.status(503).json({ error: 'CDP disconnected' });
 
         const EXP = `(() => {
-    try {
-        // Safeguard for non-DOM contexts
-        if (typeof window === 'undefined' || typeof document === 'undefined') {
-            return { error: 'Non-DOM context' };
-        }
+                        try {
+                            // Safeguard for non-DOM contexts
+                            if (typeof window === 'undefined' || typeof document === 'undefined') {
+                                return { error: 'Non-DOM context' };
+                            }
 
-        // Helper to get string class name safely (handles SVGAnimatedString)
-        function getCls(el) {
-            if (!el) return '';
-            if (typeof el.className === 'string') return el.className;
-            if (el.className && typeof el.className.baseVal === 'string') return el.className.baseVal;
-            return '';
-        }
+                            // Helper to get string class name safely (handles SVGAnimatedString)
+                            function getCls(el) {
+                                if (!el) return '';
+                                if (typeof el.className === 'string') return el.className;
+                                if (el.className && typeof el.className.baseVal === 'string') return el.className.baseVal;
+                                return '';
+                            }
 
-        // Helper to pierce Shadow DOM
-        function findAllElements(selector, root = document) {
-            let results = Array.from(root.querySelectorAll(selector));
-            const elements = root.querySelectorAll('*');
-            for (const el of elements) {
-                try {
-                    if (el.shadowRoot) {
-                        results = results.concat(Array.from(el.shadowRoot.querySelectorAll(selector)));
-                    }
-                } catch (e) { }
-            }
-            return results;
-        }
+                            // Helper to pierce Shadow DOM
+                            function findAllElements(selector, root = document) {
+                                let results = Array.from(root.querySelectorAll(selector));
+                                const elements = root.querySelectorAll('*');
+                                for (const el of elements) {
+                                    try {
+                                        if (el.shadowRoot) {
+                                            results = results.concat(Array.from(el.shadowRoot.querySelectorAll(selector)));
+                                        }
+                                    } catch (e) { }
+                                }
+                                return results;
+                            }
 
-        // Get standard info
-        const url = window.location ? window.location.href : '';
-        const title = document.title || '';
-        const bodyLen = document.body ? document.body.innerHTML.length : 0;
-        const hasCascade = !!document.getElementById('cascade') || !!document.querySelector('.cascade');
+                            // Get standard info
+                            const url = window.location ? window.location.href : '';
+                            const title = document.title || '';
+                            const bodyLen = document.body ? document.body.innerHTML.length : 0;
+                            const hasCascade = !!document.getElementById('cascade') || !!document.querySelector('.cascade');
 
-        // Scan for buttons
-        const allLucideElements = findAllElements('svg[class*="lucide"]').map(svg => {
-            const parent = svg.closest('button, [role="button"], div, span, a');
-            if (!parent || parent.offsetParent === null) return null;
-            const rect = parent.getBoundingClientRect();
-            return {
-                type: 'lucide-icon',
-                tag: parent.tagName.toLowerCase(),
-                x: Math.round(rect.left),
-                y: Math.round(rect.top),
-                svgClasses: getCls(svg),
-                className: getCls(parent).substring(0, 100),
-                ariaLabel: parent.getAttribute('aria-label') || '',
-                title: parent.getAttribute('title') || '',
-                parentText: (parent.innerText || '').trim().substring(0, 50)
-            };
-        }).filter(Boolean);
+                            // Scan for buttons
+                            const allLucideElements = findAllElements('svg[class*="lucide"]').map(svg => {
+                                const parent = svg.closest('button, [role="button"], div, span, a');
+                                if (!parent || parent.offsetParent === null) return null;
+                                const rect = parent.getBoundingClientRect();
+                                return {
+                                    type: 'lucide-icon',
+                                    tag: parent.tagName.toLowerCase(),
+                                    x: Math.round(rect.left),
+                                    y: Math.round(rect.top),
+                                    svgClasses: getCls(svg),
+                                    className: getCls(parent).substring(0, 100),
+                                    ariaLabel: parent.getAttribute('aria-label') || '',
+                                    title: parent.getAttribute('title') || '',
+                                    parentText: (parent.innerText || '').trim().substring(0, 50)
+                                };
+                            }).filter(Boolean);
 
-        const buttons = findAllElements('button, [role="button"]').map((btn, i) => {
-            const rect = btn.getBoundingClientRect();
-            const svg = btn.querySelector('svg');
+                            const buttons = findAllElements('button, [role="button"]').map((btn, i) => {
+                                const rect = btn.getBoundingClientRect();
+                                const svg = btn.querySelector('svg');
 
-            return {
-                type: 'button',
-                index: i,
-                x: Math.round(rect.left),
-                y: Math.round(rect.top),
-                text: (btn.innerText || '').trim().substring(0, 50) || '(empty)',
-                ariaLabel: btn.getAttribute('aria-label') || '',
-                title: btn.getAttribute('title') || '',
-                svgClasses: getCls(svg),
-                className: getCls(btn).substring(0, 100),
-                visible: btn.offsetParent !== null
-            };
-        }).filter(b => b.visible);
+                                return {
+                                    type: 'button',
+                                    index: i,
+                                    x: Math.round(rect.left),
+                                    y: Math.round(rect.top),
+                                    text: (btn.innerText || '').trim().substring(0, 50) || '(empty)',
+                                    ariaLabel: btn.getAttribute('aria-label') || '',
+                                    title: btn.getAttribute('title') || '',
+                                    svgClasses: getCls(svg),
+                                    className: getCls(btn).substring(0, 100),
+                                    visible: btn.offsetParent !== null
+                                };
+                            }).filter(b => b.visible);
 
-        return {
-            url, title, bodyLen, hasCascade,
-            buttons, lucideIcons: allLucideElements
-        };
-    } catch (err) {
-        return { error: err.toString(), stack: err.stack };
-    }
-})()`;
+                            return {
+                                url, title, bodyLen, hasCascade,
+                                buttons, lucideIcons: allLucideElements
+                            };
+                        } catch (err) {
+                            return { error: err.toString(), stack: err.stack };
+                        }
+                    })()`;
 
         try {
             // 1. Get Frames

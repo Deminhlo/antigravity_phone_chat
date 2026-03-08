@@ -8,6 +8,7 @@
         "dev": "node server.js"
     },
     "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.27.1",
         "compression": "^1.8.1",
         "cookie-parser": "^1.4.7",
         "dotenv": "^16.4.7",
