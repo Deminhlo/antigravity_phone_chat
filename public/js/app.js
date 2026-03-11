@@ -490,6 +490,39 @@ async function loadSnapshot() {
         // Add mobile copy buttons to all code blocks
         addMobileCopyButtons();
 
+        // --- Custom Auto-Click Logic ---
+        const customKeywordsInput = document.getElementById('autoClickKeywords');
+        // Only trigger if auto mode is ON and keywords exist
+        const isAutoAcceptSettingEnabled = document.getElementById('autoAcceptSettingBtn')?.classList.contains('active') || document.getElementById('autoAcceptBtn')?.classList.contains('active');
+
+        if (isAutoAcceptSettingEnabled && customKeywordsInput && customKeywordsInput.value.trim() !== '' && !window._isAutoAccepting) {
+            const keywords = customKeywordsInput.value.split(',').map(k => k.trim()).filter(k => k);
+            for (const kw of keywords) {
+                const kwLower = kw.toLowerCase();
+                // Check if there is an actual clickable element with this text
+                const allCheckButtons = Array.from(chatContent.querySelectorAll('button, [role="button"], .cursor-pointer, span, div')).filter(el => {
+                    if (el.children.length > 0) return false;
+                    if (el.closest('.xterm, pre, code, .component-shared-terminal')) return false;
+                    return true;
+                });
+
+                const hasMatchingBtn = allCheckButtons.some(b => (b.innerText || b.textContent || '').toLowerCase().includes(kwLower));
+
+                if (hasMatchingBtn) {
+                    console.log(`🤖 Custom Auto-Click triggered for: ${kw}`);
+                    window._isAutoAccepting = true;
+
+                    remoteReview(kw);
+
+                    // Release lock after 3 seconds to avoid spamming multiple clicks while it processes
+                    setTimeout(() => {
+                        window._isAutoAccepting = false;
+                    }, 3000);
+                    break;
+                }
+            }
+        }
+
         // Smart scroll behavior: respect user scroll, only auto-scroll when appropriate
         if (isUserScrollLocked) {
             // User recently scrolled - try to maintain their approximate position
@@ -1477,6 +1510,18 @@ function updateAutoAcceptUi(enabled) {
 // Load initial state
 const storedAutoAccept = localStorage.getItem('antigravity_auto_accept') === 'true';
 updateAutoAcceptUi(storedAutoAccept);
+
+// --- Custom Keywords Initialization ---
+const customKeywordsInput = document.getElementById('autoClickKeywords');
+if (customKeywordsInput) {
+    const storedKeywords = localStorage.getItem('antigravity_auto_click_keywords');
+    if (storedKeywords) {
+        customKeywordsInput.value = storedKeywords;
+    }
+    customKeywordsInput.addEventListener('input', (e) => {
+        localStorage.setItem('antigravity_auto_click_keywords', e.target.value);
+    });
+}
 
 if (autoAcceptBtn) {
     autoAcceptBtn.addEventListener('click', () => {

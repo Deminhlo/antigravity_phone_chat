@@ -14,7 +14,9 @@ pkill -f "node server.js" &> /dev/null
 pkill -f "ngrok" &> /dev/null
 # Cleanup by port (Linux/Mac)
 if command -v lsof &> /dev/null; then
-    lsof -ti:3000 | xargs kill -9 &> /dev/null
+    # Read PORT from .env or default to 3001
+    TARGET_PORT=$(grep -E '^PORT=' .env 2>/dev/null | cut -d '=' -f 2 || echo "3001")
+    lsof -ti:$TARGET_PORT | xargs kill -9 &> /dev/null
 fi
 
 # 1. Ensure dependencies are installed
@@ -54,8 +56,9 @@ echo "[INFO] .env configuration found."
 
 # 5. Launch everything via Python
 echo "[1/1] Launching Antigravity Phone Connect..."
-echo "(This will start both the server and the web tunnel)"
-python3 launcher.py --mode web
+echo "(This will start both the server and the web tunnel in the background)"
+nohup python3 launcher.py --mode web > /tmp/ag_phone_connect.log 2>&1 &
 
 # 6. Auto-close when done
+echo "[SUCCESS] Phone Connect is now running in the background."
 exit 0
